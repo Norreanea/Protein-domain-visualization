@@ -26,6 +26,8 @@ The following R packages are required:
 - `ggthemes`
 - `scales`
 - `plyr`
+- `tidyr`
+- `purrr`
 
 ## Contributing
 Please feel free to contribute to this repository by submitting a pull request or opening an issue.
