@@ -16,6 +16,8 @@ library(gridExtra)
 library(ggthemes)
 library(scales)
 library(plyr)
+library(tidyr)
+library(purrr)
 # Function to read sequences and subset them based on unique names
 read_and_subset_sequences = function(fname) {
   file = readAAStringSet(fname)
@@ -252,9 +254,9 @@ domains_merged = rbind(RNASEH2A_dom, RNASEH2B_dom, AGO2_dom, DICER_dom, ELAC2_do
 
 #prot_data = domains_merged
 # Reorder
-desired_order <- c("Ribonuclease H2 subunit A", "Ribonuclease H2 subunit B", "Argonaute-2", 
+desired_order = c("Ribonuclease H2 subunit A", "Ribonuclease H2 subunit B", "Argonaute-2", 
                    "Endoribonuclease Dicer", "DIS3-like exonuclease 2", "Zinc phosphodiesterase ELAC protein 2")
-domains_merged$set <- factor(domains_merged$set, levels = desired_order)
+domains_merged$set = factor(domains_merged$set, levels = desired_order)
 
 # Add selected mutation positions
 mutation_pos = data.frame(set = c("Ribonuclease H2 subunit A","Ribonuclease H2 subunit B","Ribonuclease H2 subunit B",
@@ -284,10 +286,18 @@ domains_merged_with_mutations = merge(domains_merged_with_mutations,max_end_chai
 domains_merged_with_mutations$description[domains_merged_with_mutations$description=="Ydr279p protein family (RNase H2 complex component) wHTH domain"] =
   "Ydr279p protein family (RNase H2 complex component) \nwHTH domain"
 domains_merged_with_mutations[domains_merged_with_mutations$type =="DOMAIN",]
+# Rename PAZ domains for uniqueness
+domains_merged_with_mutations = domains_merged_with_mutations %>%
+  mutate(description = case_when(
+    set == "Argonaute-2" & description == "PAZ" ~ "PAZ ",
+    TRUE ~ description
+  ))
+                               
 # Custom colors for domains
 my_darker_colors = c(
   'N-terminal domain of argonaute' = "#194d77",
   'PAZ' = "#cc660b",
+  'PAZ ' = "#cc660b",
   'Argonaute linker 1 domain' = "#238022",
   'Piwi' = "#ac2020",
   'RNB domain' = "#764f99",
@@ -317,7 +327,35 @@ desired_order = c("Ribonuclease H2 subunit A", "Ribonuclease H2 subunit B", "Arg
                   "Endoribonuclease Dicer", "DIS3-like exonuclease 2", "Zinc phosphodiesterase ELAC protein 2")
 domains_merged_with_mutations$set = factor(domains_merged_with_mutations$set, levels = desired_order)
 
+# Define custom levels for each set
+custom_levels_list = list(
+  "Ribonuclease H2 subunit A" = c("RNase H type-2"),
+  "Ribonuclease H2 subunit B" = c("Ydr279p protein triple barrel domain",
+                                  "Ydr279p protein family (RNase H2 complex component) \nwHTH domain"),
+  "Argonaute-2" = c("N-terminal domain of argonaute", "Argonaute linker 1 domain",
+                    "PAZ ", "Piwi"),
+  "Endoribonuclease Dicer" = c("Helicase ATP-binding", "Dicer, partner-binding domain",
+                               "Helicase C-terminal", "Dicer dsRNA-binding fold",
+                               "PAZ", "RNase III 1", "RNase III 2", "DRBM"),
+  "DIS3-like exonuclease 2" = c("Rrp44-like cold shock domain", "Dis3-like cold-shock domain 2 (CSD2)",
+                                "RNB domain", "DIS3-like exonuclease 2 C terminal"),
+  "Zinc phosphodiesterase ELAC protein 2" = c("tRNase Z endonuclease", "Beta-lactamase superfamily domain")
+)
 
+# Define a function to set factor levels for a subset of data
+set_custom_levels = function(df, custom_levels_list) {
+  set_name <- unique(df$set)
+  if (length(set_name) == 1 && set_name %in% names(custom_levels_list)) {
+    df$description <- factor(df$description, levels = custom_levels_list[[set_name]])
+  }
+  return(df)
+}
+
+# Apply the custom function to each subset and recombine the data
+domains_merged_with_mutations = domains_merged_with_mutations %>%
+  group_split(set) %>%
+  map_dfr(~ set_custom_levels(.x, custom_levels_list))
+                               
 final_plot_protein_domains_with_legend = by(data = domains_merged_with_mutations, INDICES = domains_merged_with_mutations$set, FUN = function(m) {
   
   m = droplevels(m)
@@ -384,27 +422,30 @@ rnases_data = list(
   list(name = "elaC ribonuclease Z 2", organisms = c("Homo_sapiens", "Mus_musculus", "Drosophila_melanogaster", "Saccharomyces_cerevisiae"), new_names = c("HS", "MM", "DM", "SC"), start = c(195, 675, 700), end = c(200, 680, 705), highlight = c(198, 678, 700))
 )
 
-create_ggmsa_plot = function(alignment, start, end, highlight) {
+create_ggmsa_plot = function(alignment, start, end, highlight, rnase_name ) {
   plot_list <- list()
   for (i in seq_along(start)) {
+    if(rnase_name %in% c("DIS3 like 3-5 exoribonuclease 2","dicer 1 ribonuclease III")){
+      highlight_range <- highlight
       plot <- ggmsa(alignment, color = "LETTER", seq_name = TRUE, by_conservation = TRUE,
                     start = start[i], end = end[i], char_width = 0.9,
-                    font = "TimesNewRoman", position_highlight = highlight[i]) +
+                    font = "TimesNewRoman", position_highlight = highlight_range) +
         theme(text = element_text(size = 10),
               plot.margin = margin(0.1, 0.1, 0.1, 0.1, "cm")) +
-        scale_x_continuous(breaks = highlight[i])
+        scale_x_continuous(breaks = highlight_range[i])
       plot_list[[i]] <- plot
-    # } else {
-    #   plot <- ggmsa(alignment, color = "LETTER", seq_name = TRUE, by_conservation = TRUE,
-    #                 start = start, end = end, char_width = 0.9,
-    #                 font = "TimesNewRoman", position_highlight = highlight) +
-    #     theme(text = element_text(size = 10),
-    #           plot.margin = margin(0.1, 0.1, 0.1, 0.1, "cm")) +
-    #     scale_x_continuous(breaks = highlight[i])
-    #   plot_list[[i]] <- plot
-    
+    } else {
+      highlight_range <- highlight
+      plot <- ggmsa(alignment, color = "LETTER", seq_name = TRUE, by_conservation = TRUE,
+                    start = start[i], end = end[i], char_width = 0.9,
+                    font = "TimesNewRoman", position_highlight = highlight_range) +
+        theme(text = element_text(size = 10),
+              plot.margin = margin(0.1, 0.1, 0.1, 0.1, "cm")) +
+        scale_x_continuous(breaks = highlight_range)
+      plot_list[[i]] <- plot
     }
     
+  }
   return(plot_list)
 }
 
@@ -423,7 +464,7 @@ generate_alignment_plots = function(rnase_name, msa_results) {
   
   if (length(order_index) > 0) {
     names(selected_aln) = rnase_data$new_names[seq_along(order_index)]  # Ensure names are properly assigned and unique
-    plots = create_ggmsa_plot(selected_aln, rnase_data$start, rnase_data$end, rnase_data$highlight)
+    plots = create_ggmsa_plot(selected_aln, rnase_data$start, rnase_data$end, rnase_data$highlight, rnase_name)
     return(plots)
   } else {
     warning(paste("No matching sequences found for", rnase_name))
